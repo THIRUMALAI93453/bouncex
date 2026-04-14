@@ -30,6 +30,7 @@ export class GameEngine {
   private particleLifetimes: Float32Array;
   private highScore = 0;
   private lastBounceZ = 0;
+  private isFalling = false;
 
   constructor(canvas: HTMLCanvasElement, callbacks: GameCallbacks) {
     this.callbacks = callbacks;
@@ -73,10 +74,9 @@ export class GameEngine {
     pointLight2.position.set(-3, 2, -5);
     this.scene.add(pointLight2);
 
-    // Background mountains (simple)
     this.createBackground();
 
-    // Particle system for landing effects
+    // Particle system
     const pCount = 200;
     this.particlePositions = new Float32Array(pCount * 3);
     this.particleVelocities = new Float32Array(pCount * 3);
@@ -101,7 +101,6 @@ export class GameEngine {
   }
 
   private createBackground() {
-    // Stylized mountain silhouettes
     const mountainGeo = new THREE.PlaneGeometry(200, 40, 40, 10);
     const positions = mountainGeo.attributes.position.array as Float32Array;
     for (let i = 0; i < positions.length; i += 3) {
@@ -114,14 +113,12 @@ export class GameEngine {
     mountain.position.set(0, 5, -80);
     this.scene.add(mountain);
 
-    // Grid floor (retrowave style)
     const gridHelper = new THREE.GridHelper(200, 80, COLORS.FESTIVAL_PURPLE, 0x220044);
     gridHelper.position.y = -0.5;
     (gridHelper.material as THREE.Material).transparent = true;
     (gridHelper.material as THREE.Material).opacity = 0.3;
     this.scene.add(gridHelper);
 
-    // Starfield
     const starCount = 300;
     const starGeo = new THREE.BufferGeometry();
     const starPos = new Float32Array(starCount * 3);
@@ -140,36 +137,51 @@ export class GameEngine {
     let mouseStartX = 0;
     let isDragging = false;
 
+    const handleInput = (direction: 'left' | 'right') => {
+      if (this.state !== 'playing') return;
+      // First input starts the ball moving
+      this.player.startMoving();
+      if (direction === 'left') this.player.moveLeft();
+      else this.player.moveRight();
+    };
+
     window.addEventListener('keydown', (e) => {
       if (this.state !== 'playing') return;
-      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') this.player.moveLeft();
-      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') this.player.moveRight();
+      this.player.startMoving();
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') handleInput('left');
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') handleInput('right');
+      // Any key starts the game
+      if (!this.player.getHasStarted()) this.player.startMoving();
     });
 
     window.addEventListener('touchstart', (e) => {
       touchStartX = e.touches[0].clientX;
+      if (this.state === 'playing' && !this.player.getHasStarted()) {
+        this.player.startMoving();
+      }
     }, { passive: true });
 
     window.addEventListener('touchend', (e) => {
       if (this.state !== 'playing') return;
       const dx = e.changedTouches[0].clientX - touchStartX;
       if (Math.abs(dx) > GAME.SWIPE_THRESHOLD) {
-        if (dx < 0) this.player.moveLeft();
-        else this.player.moveRight();
+        handleInput(dx < 0 ? 'left' : 'right');
       }
     });
 
     window.addEventListener('mousedown', (e) => {
       mouseStartX = e.clientX;
       isDragging = true;
+      if (this.state === 'playing' && !this.player.getHasStarted()) {
+        this.player.startMoving();
+      }
     });
     window.addEventListener('mouseup', (e) => {
       if (!isDragging || this.state !== 'playing') { isDragging = false; return; }
       isDragging = false;
       const dx = e.clientX - mouseStartX;
       if (Math.abs(dx) > GAME.SWIPE_THRESHOLD) {
-        if (dx < 0) this.player.moveLeft();
-        else this.player.moveRight();
+        handleInput(dx < 0 ? 'left' : 'right');
       }
     });
   }
@@ -188,6 +200,7 @@ export class GameEngine {
     this.tileManager.generateInitialTiles();
     this.gameTime = 0;
     this.lastBounceZ = 0;
+    this.isFalling = false;
     this.lastTime = performance.now();
     this.audio.init();
     this.audio.startBeat(120);
@@ -207,73 +220,88 @@ export class GameEngine {
     if (this.state === 'playing') {
       this.updateGame(dt);
     } else if (this.state === 'gameover') {
-      // Slow fall animation
       this.player.mesh.position.y -= 3 * dt;
       this.player.mesh.rotation.x += dt * 2;
     }
 
-    // Camera
+    // Camera follow
     const p = this.player.getPosition();
     this.camera.position.x += (p.x * 0.5 - this.camera.position.x) * 3 * dt;
     this.camera.position.z = p.z + GAME.CAMERA_DISTANCE;
     this.camera.position.y += (p.y + GAME.CAMERA_HEIGHT - this.camera.position.y) * 2 * dt;
     this.camera.lookAt(p.x * 0.3, p.y + 0.5, p.z - GAME.CAMERA_LOOK_AHEAD);
 
-    // Update particles
     this.updateParticles(dt);
-
     this.renderer.render(this.scene, this.camera);
     this.animationId = requestAnimationFrame(this.loop);
   };
 
   private updateGame(dt: number) {
+    if (this.isFalling) return;
+
     const speed = this.tileManager.getForwardSpeed();
-    const { landed, ballZ } = this.player.update(dt, speed);
+    const { ballZ } = this.player.update(dt, speed);
     this.tileManager.update(ballZ, dt, this.gameTime);
+
+    // Skip collision if ball hasn't started yet (sitting on first tile)
+    if (!this.player.getHasStarted()) {
+      this.callbacks.onScoreUpdate(this.player.score, this.player.combo, this.player.diamonds);
+      return;
+    }
 
     const tiles = this.tileManager.getTiles();
     const ballPos = this.player.getPosition();
+    const tileTop = GAME.TILE_HEIGHT / 2 + GAME.BALL_RADIUS;
 
-    // Check tile collision
+    // Collision detection: check if ball is descending and near tile surface
     let onTile = false;
-    if (landed && ballPos.y <= GAME.BALL_RADIUS + GAME.TILE_HEIGHT / 2 + 0.1) {
+    if (this.player.velocityY <= 0) {
       for (const tile of tiles) {
         if (!tile.active) continue;
         const dx = Math.abs(ballPos.x - tile.mesh.position.x);
         const dz = Math.abs(ballPos.z - tile.mesh.position.z);
-        if (dx < GAME.TILE_WIDTH / 2 + 0.1 && dz < GAME.TILE_DEPTH / 2 + 0.2) {
-          if (tile.isFake) {
-            // Fake tile falls away
-            tile.active = false;
-            tile.mesh.position.y -= 0.5;
-            setTimeout(() => { tile.mesh.visible = false; }, 300);
-            continue;
-          }
-          onTile = true;
 
-          // Bounce
-          if (Math.abs(ballPos.z - this.lastBounceZ) > GAME.TILE_GAP * 0.5) {
-            this.player.bounce();
-            this.lastBounceZ = ballPos.z;
-            this.player.combo++;
-            this.player.score += 10 + (this.player.combo >= GAME.COMBO_THRESHOLD ? this.player.combo * 2 : 0);
-            this.audio.playBounce();
-            this.spawnParticles(ballPos.x, GAME.TILE_HEIGHT / 2, ballPos.z);
-
-            if (this.player.combo > 0 && this.player.combo % GAME.COMBO_THRESHOLD === 0) {
-              this.audio.playCombo();
+        // Check horizontal overlap
+        if (dx < GAME.TILE_WIDTH / 2 + 0.15 && dz < GAME.TILE_DEPTH / 2 + 0.25) {
+          // Check vertical: ball must be near or below tile surface
+          const tileSurface = tile.mesh.position.y + GAME.TILE_HEIGHT / 2 + GAME.BALL_RADIUS;
+          if (ballPos.y <= tileSurface + 0.1) {
+            if (tile.isFake) {
+              tile.active = false;
+              tile.mesh.position.y -= 0.5;
+              setTimeout(() => { tile.mesh.visible = false; }, 300);
+              continue;
             }
-          }
 
-          // Diamond collection
-          if (tile.hasDiamond && !tile.collected && tile.diamondMesh) {
-            tile.collected = true;
-            tile.diamondMesh.visible = false;
-            this.player.diamonds++;
-            this.player.score += 50;
-            this.audio.playDiamond();
+            onTile = true;
+
+            // Only bounce if we moved far enough from last bounce
+            if (Math.abs(ballPos.z - this.lastBounceZ) > GAME.TILE_GAP * 0.4) {
+              this.player.bounce(tile.mesh.position.y);
+              this.lastBounceZ = ballPos.z;
+              this.player.combo++;
+              this.player.score += 10 + (this.player.combo >= GAME.COMBO_THRESHOLD ? this.player.combo * 2 : 0);
+              this.audio.playBounce();
+              this.spawnParticles(ballPos.x, tile.mesh.position.y + GAME.TILE_HEIGHT / 2, ballPos.z);
+
+              if (this.player.combo > 0 && this.player.combo % GAME.COMBO_THRESHOLD === 0) {
+                this.audio.playCombo();
+              }
+            } else {
+              // Still on tile, snap position to prevent sinking
+              this.player.mesh.position.y = Math.max(ballPos.y, tileSurface);
+            }
+
+            // Diamond collection
+            if (tile.hasDiamond && !tile.collected && tile.diamondMesh) {
+              tile.collected = true;
+              tile.diamondMesh.visible = false;
+              this.player.diamonds++;
+              this.player.score += 50;
+              this.audio.playDiamond();
+            }
+            break;
           }
-          break;
         }
       }
     }
@@ -284,8 +312,9 @@ export class GameEngine {
       return;
     }
 
-    // Check if missed all tiles (falling through)
-    if (!onTile && ballPos.y <= GAME.BALL_RADIUS - 0.5) {
+    // If ball is below tile level and not on any tile, start falling
+    if (!onTile && this.player.velocityY <= 0 && ballPos.y < tileTop - 0.3) {
+      this.isFalling = true;
       this.player.fall();
       setTimeout(() => this.gameOver(), 800);
     }

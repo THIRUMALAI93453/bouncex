@@ -2,9 +2,21 @@ export class AudioManager {
   private audioContext: AudioContext | null = null;
   private isInitialized = false;
 
+  // MP3 audio elements
+  private jumpSound: HTMLAudioElement | null = null;
+  private gameOverSound: HTMLAudioElement | null = null;
+
   init() {
     if (this.isInitialized) return;
     this.audioContext = new AudioContext();
+
+    // Load MP3 files
+    this.jumpSound = new Audio('/assets/fahh.mp3');
+    this.jumpSound.volume = 0.5;
+
+    this.gameOverSound = new Audio('/assets/bruh.mp3');
+    this.gameOverSound.volume = 0.7;
+
     this.isInitialized = true;
   }
 
@@ -23,8 +35,11 @@ export class AudioManager {
   }
 
   playBounce() {
-    this.playTone(523, 0.12, 'sine', 0.1);
-    this.playTone(659, 0.08, 'sine', 0.08);
+    // Play the fahh.mp3 sound on every bounce
+    if (this.jumpSound) {
+      this.jumpSound.currentTime = 0;
+      this.jumpSound.play().catch(() => {});
+    }
   }
 
   playDiamond() {
@@ -40,9 +55,11 @@ export class AudioManager {
   }
 
   playGameOver() {
-    this.playTone(440, 0.3, 'sawtooth', 0.1);
-    setTimeout(() => this.playTone(330, 0.3, 'sawtooth', 0.08), 200);
-    setTimeout(() => this.playTone(262, 0.5, 'sawtooth', 0.06), 400);
+    // Play bruh.mp3 on game over
+    if (this.gameOverSound) {
+      this.gameOverSound.currentTime = 0;
+      this.gameOverSound.play().catch(() => {});
+    }
   }
 
   // Simple rhythmic background using tabla-like patterns
@@ -53,9 +70,7 @@ export class AudioManager {
     let beat = 0;
     this.bgInterval = window.setInterval(() => {
       const emphasis = beat % 4 === 0;
-      // Tabla-like: low thud
       this.playTone(emphasis ? 80 : 120, 0.08, 'sine', emphasis ? 0.06 : 0.03);
-      // High tap
       if (beat % 2 === 0) {
         this.playTone(emphasis ? 400 : 350, 0.04, 'triangle', 0.02);
       }

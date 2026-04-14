@@ -4,12 +4,13 @@ import { GAME, COLORS } from './constants';
 export class Player {
   mesh: THREE.Mesh;
   trailParticles: THREE.Points;
-  private velocity: { x: number; y: number; z: number } = { x: 0, y: GAME.BOUNCE_VELOCITY, z: 0 };
+  velocityY = 0;
   private targetLane = 0;
   private currentLaneX = 0;
   private isAlive = true;
   private trailPositions: Float32Array;
   private trailIndex = 0;
+  private hasStarted = false; // Ball stays still until first bounce
   score = 0;
   combo = 0;
   diamonds = 0;
@@ -26,7 +27,9 @@ export class Player {
     });
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.castShadow = true;
-    this.mesh.position.set(0, 2, 0);
+    // Start on top of first tile: tile.y=0, so ball.y = TILE_HEIGHT/2 + BALL_RADIUS
+    const startY = GAME.TILE_HEIGHT / 2 + GAME.BALL_RADIUS;
+    this.mesh.position.set(0, startY, 0);
     scene.add(this.mesh);
 
     // Trail
@@ -53,16 +56,28 @@ export class Player {
     if (this.targetLane < 1) this.targetLane++;
   }
 
-  update(dt: number, forwardSpeed: number): { landed: boolean; ballZ: number } {
-    if (!this.isAlive) return { landed: false, ballZ: this.mesh.position.z };
+  startMoving() {
+    if (!this.hasStarted) {
+      this.hasStarted = true;
+      this.velocityY = GAME.BOUNCE_VELOCITY;
+    }
+  }
 
-    // Forward
+  update(dt: number, forwardSpeed: number): { ballZ: number } {
+    if (!this.isAlive) return { ballZ: this.mesh.position.z };
+
+    // Don't move forward or apply gravity until started
+    if (!this.hasStarted) {
+      return { ballZ: this.mesh.position.z };
+    }
+
+    // Forward movement
     this.mesh.position.z -= forwardSpeed * dt;
     this.distance = Math.abs(this.mesh.position.z);
 
     // Gravity
-    this.velocity.y += GAME.GRAVITY * dt;
-    this.mesh.position.y += this.velocity.y * dt;
+    this.velocityY += GAME.GRAVITY * dt;
+    this.mesh.position.y += this.velocityY * dt;
 
     // Lane movement
     const targetX = this.targetLane * GAME.LANE_OFFSET;
@@ -78,35 +93,33 @@ export class Player {
     this.trailIndex++;
     this.trailParticles.geometry.attributes.position.needsUpdate = true;
 
-    // Check ground bounce (will be overridden by tile collision)
-    let landed = false;
-    if (this.mesh.position.y <= GAME.BALL_RADIUS + GAME.TILE_HEIGHT / 2) {
-      landed = true;
-    }
-
-    return { landed, ballZ: this.mesh.position.z };
+    return { ballZ: this.mesh.position.z };
   }
 
-  bounce() {
-    this.velocity.y = GAME.BOUNCE_VELOCITY;
-    this.mesh.position.y = GAME.BALL_RADIUS + GAME.TILE_HEIGHT / 2;
+  bounce(tileY: number) {
+    this.velocityY = GAME.BOUNCE_VELOCITY;
+    // Snap ball exactly on top of tile surface
+    this.mesh.position.y = tileY + GAME.TILE_HEIGHT / 2 + GAME.BALL_RADIUS;
   }
 
   fall() {
     this.isAlive = false;
-    this.velocity.y = -2;
+    this.velocityY = -2;
   }
 
   getIsAlive() { return this.isAlive; }
+  getHasStarted() { return this.hasStarted; }
   getPosition() { return this.mesh.position; }
   getLane() { return this.targetLane; }
 
   reset() {
-    this.mesh.position.set(0, 2, 0);
-    this.velocity = { x: 0, y: GAME.BOUNCE_VELOCITY, z: 0 };
+    const startY = GAME.TILE_HEIGHT / 2 + GAME.BALL_RADIUS;
+    this.mesh.position.set(0, startY, 0);
+    this.velocityY = 0;
     this.targetLane = 0;
     this.currentLaneX = 0;
     this.isAlive = true;
+    this.hasStarted = false;
     this.score = 0;
     this.combo = 0;
     this.diamonds = 0;
