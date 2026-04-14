@@ -12,7 +12,7 @@ export const MenuScreen: FC<MenuScreenProps> = ({ onPlay }) => {
         <div className="text-5xl sparkle">🪔</div>
         
         <h1 className="game-title leading-tight">
-          Diya<br />Jumper
+          Bounce X
         </h1>
         
         <p className="text-muted-foreground text-sm max-w-xs">
