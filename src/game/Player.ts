@@ -4,7 +4,7 @@ import { GAME, COLORS } from './constants';
 export class Player {
   mesh: THREE.Mesh;
   trailParticles: THREE.Points;
-  private velocity = { x: 0, y: GAME.BOUNCE_VELOCITY, z: 0 };
+  private velocity: { x: number; y: number; z: number } = { x: 0, y: GAME.BOUNCE_VELOCITY, z: 0 };
   private targetLane = 0;
   private currentLaneX = 0;
   private isAlive = true;
