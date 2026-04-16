@@ -138,4 +138,36 @@
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-10px); }
   }
+
+  .btn-shop {
+    @apply relative px-8 py-4 text-lg font-bold rounded-xl overflow-hidden transition-all duration-300;
+    font-family: var(--font-display);
+    background: linear-gradient(135deg, hsl(var(--rangoli-teal)), hsl(var(--rangoli-gold)));
+    color: hsl(var(--primary-foreground));
+    box-shadow: 0 0 20px hsl(var(--rangoli-teal) / 0.4), 0 4px 15px hsl(0 0% 0% / 0.3);
+  }
+  .btn-shop:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 35px hsl(var(--rangoli-teal) / 0.6), 0 6px 20px hsl(0 0% 0% / 0.4);
+  }
+}
+
+@keyframes floatUp {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-40px) scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-80px) scale(0.8);
+  }
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
 }
